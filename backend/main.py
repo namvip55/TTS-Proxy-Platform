@@ -33,10 +33,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Cấu hình CORS
+# Cấu hình CORS linh hoạt hỗ trợ mọi domain Vercel và Localhost
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else ["*"],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
