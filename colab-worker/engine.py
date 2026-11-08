@@ -105,61 +105,60 @@ class VieNeuTTSEngine:
         logger.info(f"[Engine] Đang xử lý: '{clean_text[:40]}...' | Giọng: {voice_id} | Tốc độ: {speed}x | Định dạng: {response_format}")
 
         # Trường hợp 1: Sử dụng VieNeu SDK thật nếu đã nạp
-        if self.vieneu_instance is not None:
-            import tempfile
-            import traceback
+        if self.vieneu_instance is None:
+            try:
+                from vieneu import Vieneu
+                logger.info("[Engine] Đang khởi tạo lại VieNeu SDK...")
+                self.vieneu_instance = Vieneu()
+            except Exception as init_err:
+                logger.error(f"[Engine] Không thể khởi tạo VieNeu SDK: {init_err}")
+                raise RuntimeError(f"Chưa nạp được VieNeu-TTS AI: {init_err}")
 
-            tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            tmp_wav_path = tmp_wav.name
-            tmp_wav.close()
+        import tempfile
+        import traceback
+
+        tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_wav_path = tmp_wav.name
+        tmp_wav.close()
+
+        try:
+            # 1. Ánh xạ voice_id sang preset của VieNeu
+            voice_name = self._map_voice_id_to_vieneu_preset(voice_id)
+            logger.info(f"[Engine] Đang gọi VieNeu.infer với giọng: '{voice_name}'...")
 
             try:
-                # 1. Ánh xạ voice_id sang preset của VieNeu
-                voice_name = self._map_voice_id_to_vieneu_preset(voice_id)
-                logger.info(f"[Engine] Đang gọi VieNeu.infer với giọng: '{voice_name}'...")
-                
+                audio_res = self.vieneu_instance.infer(clean_text, voice=voice_name)
+            except Exception as voice_err:
+                logger.warning(f"[Engine] Giọng '{voice_name}' không khả dụng ({voice_err}), dùng giọng mặc định...")
+                audio_res = self.vieneu_instance.infer(clean_text)
+
+            # 2. Lưu ra tệp tạm thời trên đĩa
+            self.vieneu_instance.save(audio_res, tmp_wav_path)
+
+            # 3. Đọc dữ liệu nhị phân WAV từ đĩa
+            with open(tmp_wav_path, "rb") as f:
+                audio_bytes = f.read()
+
+            # 4. Điều chỉnh tốc độ hoặc đổi sang MP3 nếu yêu cầu
+            if response_format.lower() == "mp3" or speed != 1.0:
+                audio_bytes = self._process_audio_speed_format(audio_bytes, speed, response_format)
+
+            end_time = time.perf_counter()
+            execution_time_ms = int((end_time - start_time) * 1000)
+            logger.info(f"[Engine] >>> CHÍNH THỨC HOÀN TẤT BẰNG VIENEU-TTS AI TRONG {execution_time_ms} ms! <<<")
+            return audio_bytes, execution_time_ms
+
+        except Exception as vieneu_err:
+            logger.error(f"[Engine] Lỗi nghiêm trọng từ VieNeu SDK: {vieneu_err}")
+            traceback.print_exc()
+            raise RuntimeError(f"Lỗi suy luận VieNeu-TTS: {vieneu_err}")
+
+        finally:
+            if os.path.exists(tmp_wav_path):
                 try:
-                    audio_res = self.vieneu_instance.infer(clean_text, voice=voice_name)
-                except Exception as voice_err:
-                    logger.warning(f"[Engine] Giọng '{voice_name}' không khả dụng ({voice_err}), dùng giọng mặc định...")
-                    audio_res = self.vieneu_instance.infer(clean_text)
-
-                # 2. Lưu ra tệp tạm thời trên đĩa
-                self.vieneu_instance.save(audio_res, tmp_wav_path)
-
-                # 3. Đọc dữ liệu nhị phân WAV từ đĩa
-                with open(tmp_wav_path, "rb") as f:
-                    audio_bytes = f.read()
-
-                # 4. Điều chỉnh tốc độ hoặc đổi sang MP3 nếu yêu cầu
-                if response_format.lower() == "mp3" or speed != 1.0:
-                    audio_bytes = self._process_audio_speed_format(audio_bytes, speed, response_format)
-
-                end_time = time.perf_counter()
-                execution_time_ms = int((end_time - start_time) * 1000)
-                logger.info(f"[Engine] >>> CHÍNH THỨC HOÀN TẤT BẰNG VIENEU-TTS AI TRONG {execution_time_ms} ms! <<<")
-                return audio_bytes, execution_time_ms
-
-            except Exception as vieneu_err:
-                logger.error(f"[Engine] Lỗi nghiêm trọng từ VieNeu SDK: {vieneu_err}")
-                traceback.print_exc()
-                # Không fallback về tiếng ù nữa, ném lỗi rõ ràng
-                raise RuntimeError(f"Lỗi suy luận VieNeu-TTS: {vieneu_err}")
-
-            finally:
-                if os.path.exists(tmp_wav_path):
-                    try:
-                        os.remove(tmp_wav_path)
-                    except Exception:
-                        pass
-
-        # Trường hợp 2: Fallback Audio Generator
-        audio_bytes = self._generate_fallback_audio(clean_text, voice_id, speed, response_format)
-        end_time = time.perf_counter()
-        execution_time_ms = int((end_time - start_time) * 1000)
-        logger.info(f"[Engine] Hoàn thành sinh âm thanh trong {execution_time_ms} ms!")
-
-        return audio_bytes, execution_time_ms
+                    os.remove(tmp_wav_path)
+                except Exception:
+                    pass
 
     def _map_voice_id_to_vieneu_preset(self, voice_id: str) -> str:
         """Ánh xạ voice_id hệ thống sang tên preset trong VieNeu-TTS"""
