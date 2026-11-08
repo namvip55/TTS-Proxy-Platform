@@ -40,8 +40,16 @@ async def send_heartbeat(ws):
     try:
         while True:
             await asyncio.sleep(20)
-            if ws.open:
+            is_alive = True
+            if hasattr(ws, "closed"):
+                is_alive = not ws.closed
+            elif hasattr(ws, "open"):
+                is_alive = ws.open
+
+            if is_alive:
                 await ws.send(json.dumps({"type": "PING"}))
+            else:
+                break
     except asyncio.CancelledError:
         pass
     except Exception as e:
