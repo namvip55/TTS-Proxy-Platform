@@ -106,27 +106,52 @@ class VieNeuTTSEngine:
 
         # Trường hợp 1: Sử dụng VieNeu SDK thật nếu đã nạp
         if self.vieneu_instance is not None:
-            try:
-                # Ánh xạ voice_id sang preset của VieNeu (ví dụ: "Minh Quân", "Mai Chi", v.v.)
-                voice_name = self._map_voice_id_to_vieneu_preset(voice_id)
-                audio_res = self.vieneu_instance.infer(clean_text, voice=voice_name)
-                
-                # Lưu ra buffer RAM
-                buffer = io.BytesIO()
-                self.vieneu_instance.save(audio_res, buffer)
-                buffer.seek(0)
-                audio_bytes = buffer.read()
+            import tempfile
+            import traceback
 
-                # Đổi định dạng nếu yêu cầu MP3
-                if response_format.lower() == "mp3":
-                    audio_bytes = self._convert_wav_to_mp3(audio_bytes)
+            tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp_wav_path = tmp_wav.name
+            tmp_wav.close()
+
+            try:
+                # 1. Ánh xạ voice_id sang preset của VieNeu
+                voice_name = self._map_voice_id_to_vieneu_preset(voice_id)
+                logger.info(f"[Engine] Đang gọi VieNeu.infer với giọng: '{voice_name}'...")
+                
+                try:
+                    audio_res = self.vieneu_instance.infer(clean_text, voice=voice_name)
+                except Exception as voice_err:
+                    logger.warning(f"[Engine] Giọng '{voice_name}' không khả dụng ({voice_err}), dùng giọng mặc định...")
+                    audio_res = self.vieneu_instance.infer(clean_text)
+
+                # 2. Lưu ra tệp tạm thời trên đĩa
+                self.vieneu_instance.save(audio_res, tmp_wav_path)
+
+                # 3. Đọc dữ liệu nhị phân WAV từ đĩa
+                with open(tmp_wav_path, "rb") as f:
+                    audio_bytes = f.read()
+
+                # 4. Điều chỉnh tốc độ hoặc đổi sang MP3 nếu yêu cầu
+                if response_format.lower() == "mp3" or speed != 1.0:
+                    audio_bytes = self._process_audio_speed_format(audio_bytes, speed, response_format)
 
                 end_time = time.perf_counter()
                 execution_time_ms = int((end_time - start_time) * 1000)
-                logger.info(f"[Engine] Hoàn thành sinh âm thanh bằng VieNeu SDK trong {execution_time_ms} ms!")
+                logger.info(f"[Engine] >>> CHÍNH THỨC HOÀN TẤT BẰNG VIENEU-TTS AI TRONG {execution_time_ms} ms! <<<")
                 return audio_bytes, execution_time_ms
+
             except Exception as vieneu_err:
-                logger.error(f"[Engine] Lỗi từ VieNeu SDK: {vieneu_err}. Chuyển sang fallback.")
+                logger.error(f"[Engine] Lỗi nghiêm trọng từ VieNeu SDK: {vieneu_err}")
+                traceback.print_exc()
+                # Không fallback về tiếng ù nữa, ném lỗi rõ ràng
+                raise RuntimeError(f"Lỗi suy luận VieNeu-TTS: {vieneu_err}")
+
+            finally:
+                if os.path.exists(tmp_wav_path):
+                    try:
+                        os.remove(tmp_wav_path)
+                    except Exception:
+                        pass
 
         # Trường hợp 2: Fallback Audio Generator
         audio_bytes = self._generate_fallback_audio(clean_text, voice_id, speed, response_format)
@@ -150,17 +175,32 @@ class VieNeuTTSEngine:
         }
         return mapping.get(voice_id, "Quang Minh")
 
-    def _convert_wav_to_mp3(self, wav_bytes: bytes) -> bytes:
-        """Chuyển đổi dữ liệu WAV sang MP3 bằng pydub nếu có"""
+    def _process_audio_speed_format(self, wav_bytes: bytes, speed: float = 1.0, response_format: str = "mp3") -> bytes:
+        """Điều chỉnh tốc độ phát và đổi định dạng WAV -> MP3"""
         try:
             from pydub import AudioSegment
-            audio_seg = AudioSegment.from_wav(io.BytesIO(wav_bytes))
-            mp3_buf = io.BytesIO()
-            audio_seg.export(mp3_buf, format="mp3", bitrate="192k")
-            mp3_buf.seek(0)
-            return mp3_buf.read()
-        except Exception:
+            audio = AudioSegment.from_wav(io.BytesIO(wav_bytes))
+
+            # Điều chỉnh tốc độ nếu khác 1.0
+            if speed != 1.0 and 0.5 <= speed <= 2.0:
+                new_sample_rate = int(audio.frame_rate * speed)
+                audio = audio._spawn(audio.raw_data, overrides={'frame_rate': new_sample_rate})
+                audio = audio.set_frame_rate(audio.frame_rate)
+
+            out_buf = io.BytesIO()
+            if response_format.lower() == "mp3":
+                audio.export(out_buf, format="mp3", bitrate="192k")
+            else:
+                audio.export(out_buf, format="wav")
+            out_buf.seek(0)
+            return out_buf.read()
+        except Exception as e:
+            logger.warning(f"[Engine] Không thể chuyển đổi qua pydub ({e}), giữ nguyên WAV gốc.")
             return wav_bytes
+
+    def _convert_wav_to_mp3(self, wav_bytes: bytes) -> bytes:
+        """Chuyển đổi dữ liệu WAV sang MP3 bằng pydub nếu có"""
+        return self._process_audio_speed_format(wav_bytes, speed=1.0, response_format="mp3")
 
     def _generate_fallback_audio(self, text: str, voice_id: str, speed: float, response_format: str) -> bytes:
         """Tạo sóng âm hài hòa chất lượng cao khi chưa nạp checkpoint 2GB"""
