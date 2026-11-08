@@ -54,7 +54,7 @@ Colab cần 1 đường dẫn công khai để kết nối về máy bạn:
    os.environ['SUPABASE_BUCKET'] = 'tts-audios'
    ```
 4. Bấm nút **Run All** (hoặc bấm Play lần lượt từ Bước 1 đến Bước 5).
-   - Vì model đã được lưu sẵn trên Google Drive (`VieNeu_TTS_Cache`), Colab chỉ mất **3–5 giây** để nạp xong VRAM GPU.
+   - Nhờ lưu trữ trên SSD cục bộ của Colab, quá trình tải và nạp model vào VRAM GPU chỉ mất **3–5 giây**.
    - Tại ô Bước 5 xuất hiện dòng:
      ```text
      >>> KẾT NỐI TỚI GATEWAY THÀNH CÔNG! ĐANG LẮNG NGHE JOB... <<<

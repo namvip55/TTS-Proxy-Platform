@@ -53,6 +53,9 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# Jupyter Notebook (chứa outputs/logs nhạy cảm, chỉ giữ trên Colab)
+*.ipynb
+
 # Large Model weights & caches (được lưu trên Google Drive)
 VieNeu-TTS/
 *.pth

@@ -8,4 +8,5 @@ python-dotenv>=1.0.1
 # PyTorch & HuggingFace dependencies (đã có sẵn trên Colab, khai báo để tham chiếu)
 transformers>=4.40.0
 accelerate>=0.28.0
+safetensors>=0.4.0
 scipy>=1.11.0

@@ -23,12 +23,28 @@ if IS_COLAB:
     except Exception as drive_err:
         logger.warning(f"[Drive] Không thể mount Google Drive: {drive_err}")
 
-# Cấu hình thư mục lưu trữ Cache Mô hình trên Google Drive để không bị mất khi ngắt kết nối
-DRIVE_CACHE_DIR = "/content/drive/MyDrive/VieNeu_TTS_Cache" if IS_COLAB else os.path.expanduser("~/.cache/vieneu_tts")
-os.makedirs(DRIVE_CACHE_DIR, exist_ok=True)
-os.environ["HF_HOME"] = DRIVE_CACHE_DIR
-os.environ["TRANSFORMERS_CACHE"] = DRIVE_CACHE_DIR
-os.environ["TORCH_HOME"] = DRIVE_CACHE_DIR
+# Cấu hình thư mục lưu trữ Cache Mô hình
+# LƯU Ý QUAN TRỌNG:
+# KHÔNG trỏ HF_HOME trực tiếp vào Google Drive FUSE (/content/drive/MyDrive/...)
+# vì FUSE trên Colab không hỗ trợ syscall `mmap` của safetensors và không hỗ trợ symlinks,
+# dẫn đến lỗi nghiêm trọng: "Error while deserializing header: header too large".
+# Thay vào đó, dùng ổ NVMe SSD nội bộ cực nhanh của Colab (/content/hf_cache),
+# VieNeu v3-Turbo chỉ nặng ~350MB, tải trên Colab chỉ mất 2-3 giây.
+HF_CACHE_DIR = "/content/hf_cache" if IS_COLAB else os.path.expanduser("~/.cache/vieneu_tts")
+os.makedirs(HF_CACHE_DIR, exist_ok=True)
+os.environ["HF_HOME"] = HF_CACHE_DIR
+os.environ["TRANSFORMERS_CACHE"] = HF_CACHE_DIR
+os.environ["TORCH_HOME"] = HF_CACHE_DIR
+
+# Tự động dọn dẹp cache hỏng cũ trên Drive nếu tồn tại để tránh xung đột
+OLD_DRIVE_CACHE = "/content/drive/MyDrive/VieNeu_TTS_Cache"
+if os.path.exists(OLD_DRIVE_CACHE):
+    try:
+        import shutil
+        logger.info(f"[Engine] Đang dọn dẹp thư mục cache cũ trên Google Drive ({OLD_DRIVE_CACHE}) để tránh lỗi safetensors header too large...")
+        shutil.rmtree(OLD_DRIVE_CACHE, ignore_errors=True)
+    except Exception as clean_err:
+        logger.warning(f"[Engine] Không thể xóa cache Drive cũ: {clean_err}")
 
 # Tự động nạp VieNeu-TTS nếu đã clone vào Google Drive hoặc thư mục hiện tại
 possible_paths = [
@@ -41,7 +57,7 @@ for p in possible_paths:
         sys.path.insert(0, p)
         logger.info(f"[Engine] Đã tìm thấy và liên kết VieNeu-TTS từ: {p}")
 
-logger.info(f"[Engine] Thư mục Cache Mô hình trên Drive: {DRIVE_CACHE_DIR}")
+logger.info(f"[Engine] Thư mục Cache Mô hình HuggingFace SSD: {HF_CACHE_DIR}")
 
 
 # ====================================================================
@@ -55,6 +71,24 @@ class VieNeuTTSEngine:
         self.vieneu_instance = None
         self.is_loaded = False
         self.load_model()
+
+    def _purge_corrupted_cache(self):
+        """Xóa sạch các file cache safetensors bị hỏng hoặc tải dở dang."""
+        import shutil
+        cache_dirs = [
+            HF_CACHE_DIR,
+            "/root/.cache/huggingface",
+            os.path.expanduser("~/.cache/huggingface"),
+            OLD_DRIVE_CACHE
+        ]
+        for cdir in cache_dirs:
+            if os.path.exists(cdir):
+                try:
+                    logger.info(f"[Engine] Đang xóa thư mục cache hỏng: {cdir}")
+                    shutil.rmtree(cdir, ignore_errors=True)
+                    os.makedirs(cdir, exist_ok=True)
+                except Exception as e:
+                    logger.warning(f"[Engine] Không thể dọn dẹp {cdir}: {e}")
 
     def load_model(self):
         """Khởi tạo và nạp mô hình VieNeu-TTS lên VRAM GPU T4."""
@@ -82,7 +116,20 @@ class VieNeuTTSEngine:
         except ImportError:
             logger.info("[Engine] Chưa cài đặt gói 'vieneu'. Kiểm tra thư mục clone VieNeu-TTS hoặc chạy chế độ mô phỏng.")
         except Exception as e:
-            logger.warning(f"[Engine] Thông báo khi khởi tạo Vieneu SDK: {e}")
+            err_msg = str(e)
+            logger.warning(f"[Engine] Thông báo khi khởi tạo Vieneu SDK: {err_msg}")
+            # Tự động phát hiện và dọn dẹp cache nếu bị lỗi 'header too large' hoặc 'safetensor'
+            if "header too large" in err_msg.lower() or "safetensor" in err_msg.lower():
+                logger.warning("[Engine] Phát hiện file checkpoint safetensors bị hỏng. Đang tự động dọn dẹp cache và tải lại một lần...")
+                self._purge_corrupted_cache()
+                try:
+                    from vieneu import Vieneu
+                    self.vieneu_instance = Vieneu()
+                    self.is_loaded = True
+                    logger.info("[Engine] >>> Phục hồi thành công! VieNeu-TTS Engine đã nạp xong! <<<")
+                    return
+                except Exception as retry_err:
+                    logger.error(f"[Engine] Không thể phục hồi VieNeu SDK sau khi xóa cache: {retry_err}")
 
         self.is_loaded = True
 
@@ -111,8 +158,19 @@ class VieNeuTTSEngine:
                 logger.info("[Engine] Đang khởi tạo lại VieNeu SDK...")
                 self.vieneu_instance = Vieneu()
             except Exception as init_err:
-                logger.error(f"[Engine] Không thể khởi tạo VieNeu SDK: {init_err}")
-                raise RuntimeError(f"Chưa nạp được VieNeu-TTS AI: {init_err}")
+                err_str = str(init_err)
+                if "header too large" in err_str.lower() or "safetensor" in err_str.lower():
+                    logger.warning("[Engine] Lỗi header too large khi gọi infer. Đang xóa cache hỏng và khởi tạo lại...")
+                    self._purge_corrupted_cache()
+                    try:
+                        from vieneu import Vieneu
+                        self.vieneu_instance = Vieneu()
+                    except Exception as retry_err:
+                        logger.error(f"[Engine] Không thể khởi tạo VieNeu SDK: {retry_err}")
+                        raise RuntimeError(f"Chưa nạp được VieNeu-TTS AI: {retry_err}")
+                else:
+                    logger.error(f"[Engine] Không thể khởi tạo VieNeu SDK: {init_err}")
+                    raise RuntimeError(f"Chưa nạp được VieNeu-TTS AI: {init_err}")
 
         import tempfile
         import traceback

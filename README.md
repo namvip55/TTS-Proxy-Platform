@@ -120,7 +120,7 @@ tts-proxy-platform/
    os.environ['SUPABASE_KEY'] = 'your-supabase-service-role-or-anon-key'
    ```
 3. Bấm **Run All**.
-   - Model 2GB tự động được mount và lưu vào Google Drive tại `/content/drive/MyDrive/VieNeu_TTS_Cache` (không phải tải lại khi ngắt kết nối).
+   - Model ~350MB tự động được tải từ HuggingFace Hub và lưu trên SSD cục bộ của Colab (`/content/hf_cache`). Tải chỉ mất 2-3 giây.
    - Worker tự động mở Reverse WebSocket tới Gateway và lắng nghe Job.
 
 ---
