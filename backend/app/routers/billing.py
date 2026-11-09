@@ -19,6 +19,7 @@ BANK_BIN = "970436"         # Vietcombank BIN
 BANK_NAME = "Vietcombank"
 BANK_ACCOUNT = "1071895625"
 BANK_ACCOUNT_NAME = "VIENEU TTS"
+ADMIN_EMAIL = "admin@gmail.com"
 
 PACKAGES_DATA = {
     "normal": {
@@ -93,10 +94,20 @@ PACKAGES_DATA = {
 
 class CreateOrderRequest(BaseModel):
     package_id: str = Field(..., description="Mã gói nạp: plus, pro, ultra")
+    preferred_code: Optional[str] = Field(None, description="Mã mong muốn nếu có")
 
 
-class ConfirmOrderRequest(BaseModel):
-    order_code: str = Field(..., description="Mã đơn nạp cần xác nhận")
+class NotifyTransferRequest(BaseModel):
+    order_code: str = Field(..., description="Mã đơn nạp user thông báo đã chuyển khoản")
+
+
+class AdminApproveRequest(BaseModel):
+    order_code: str = Field(..., description="Mã đơn nạp hoặc mã 6 chữ số cần duyệt")
+
+
+class AdminRejectRequest(BaseModel):
+    order_code: str = Field(..., description="Mã đơn nạp cần từ chối")
+    reason: Optional[str] = Field("Thông tin giao dịch không hợp lệ", description="Lý do từ chối")
 
 
 def generate_vietqr_url(bank_bin: str, account_number: str, amount: int, transfer_content: str) -> str:
@@ -107,27 +118,31 @@ def generate_vietqr_url(bank_bin: str, account_number: str, amount: int, transfe
     return f"https://img.vietqr.io/image/{bank_bin}-{account_number}-compact2.png?amount={amount}&addInfo={encoded_content}&accountName={BANK_ACCOUNT_NAME.replace(' ', '%20')}"
 
 
+def clean_order_code(code: str) -> str:
+    """Chuẩn hóa mã đơn: nếu nhập '849201' thì biến thành 'TTS849201'."""
+    clean = code.strip().upper()
+    if clean.isdigit() and len(clean) == 6:
+        clean = f"TTS{clean}"
+    return clean
+
+
 @router.get("/packages")
 async def get_packages():
-    """
-    Lấy danh sách tất cả các gói cước và tỷ lệ quy đổi credit (1 credit = 5 chữ).
-    """
+    """Lấy danh sách tất cả các gói cước."""
     supabase = get_supabase_admin()
     try:
         res = supabase.table("credit_packages").select("*").order("sort_order").execute()
         if res.data and len(res.data) > 0:
             return {"packages": res.data}
     except Exception as e:
-        logger.warning(f"Lỗi truy vấn packages từ DB: {e}, fallback sang dictionary.")
+        logger.warning(f"Lỗi truy vấn packages từ DB: {e}")
     
     return {"packages": list(PACKAGES_DATA.values())}
 
 
 @router.get("/balance")
 async def get_balance(auth_ctx: dict = Depends(get_current_auth)):
-    """
-    Lấy số dư credit, gói cước hiện tại và số chữ tương đương của người dùng.
-    """
+    """Lấy số dư credit và gói cước hiện tại của người dùng."""
     user_id = auth_ctx.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Xác thực không hợp lệ")
@@ -141,7 +156,6 @@ async def get_balance(auth_ctx: dict = Depends(get_current_auth)):
             tier = row.get("tier", "normal")
             total_used = row.get("total_used_credits", 0)
         else:
-            # Tạo mới nếu chưa có
             credit_balance = 1000
             tier = "normal"
             total_used = 0
@@ -152,19 +166,16 @@ async def get_balance(auth_ctx: dict = Depends(get_current_auth)):
                 "total_used_credits": 0
             }).execute()
 
-        words_remaining = credit_balance * 5
-
         return {
             "user_id": user_id,
             "tier": tier,
             "credit_balance": credit_balance,
-            "words_remaining": words_remaining,
+            "words_remaining": credit_balance * 5,
             "total_used_credits": total_used,
             "rate_words_per_credit": 5
         }
     except Exception as e:
         logger.error(f"Lỗi khi lấy thông tin credit của user {user_id}: {e}")
-        # Trả về giá trị an toàn nếu DB tạm ngắt
         return {
             "user_id": user_id,
             "tier": "normal",
@@ -181,28 +192,26 @@ async def create_order(
     auth_ctx: dict = Depends(get_current_auth)
 ):
     """
-    Tạo đơn nạp credit và sinh mã QR Vietcombank chuẩn VietQR kèm nội dung giao dịch duy nhất.
+    Tạo đơn nạp credit và sinh mã QR Vietcombank chuẩn VietQR kèm mã 6 số.
     """
     user_id = auth_ctx.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Xác thực không hợp lệ")
+    user_email = auth_ctx.get("email") or ""
 
     pkg_id = payload.package_id.lower()
     if pkg_id not in PACKAGES_DATA or pkg_id == "normal":
-        raise HTTPException(
-            status_code=400,
-            detail="Gói nạp không hợp lệ. Vui lòng chọn gói Plus, Pro hoặc Ultra."
-        )
+        raise HTTPException(status_code=400, detail="Gói nạp không hợp lệ. Vui lòng chọn Plus, Pro hoặc Ultra.")
 
     pkg = PACKAGES_DATA[pkg_id]
     amount = pkg["price_vnd"]
     credits = pkg["credits"]
 
-    # Sinh mã nội dung chuyển khoản duy nhất: TTS + 6 số ngẫu nhiên
-    random_num = random.randint(100000, 999999)
-    order_code = f"TTS{random_num}"
-    transfer_content = order_code
+    if payload.preferred_code and len(payload.preferred_code.strip()) >= 6:
+        order_code = clean_order_code(payload.preferred_code)
+    else:
+        random_num = random.randint(100000, 999999)
+        order_code = f"TTS{random_num}"
 
+    transfer_content = order_code
     qr_url = generate_vietqr_url(BANK_BIN, BANK_ACCOUNT, amount, transfer_content)
 
     supabase = get_supabase_admin()
@@ -220,15 +229,18 @@ async def create_order(
         "qr_data_url": qr_url,
         "status": "PENDING"
     }
+    if user_email:
+        order_record["user_email"] = user_email
 
     try:
         supabase.table("payment_orders").insert(order_record).execute()
     except Exception as e:
-        logger.warning(f"Lưu đơn nạp DB thất bại: {e}. Vẫn trả về order thông tin cho client.")
+        logger.warning(f"Lưu đơn nạp DB thất bại (có thể đã tồn tại mã): {e}")
 
     return {
         "success": True,
         "order_code": order_code,
+        "code_number": order_code.replace("TTS", ""),
         "package": pkg,
         "amount_vnd": amount,
         "credits_granted": credits,
@@ -243,51 +255,143 @@ async def create_order(
         "qr_code_url": qr_url,
         "status": "PENDING",
         "instructions": [
-            f"1. Mở ứng dụng ngân hàng bất kỳ hoặc ví điện tử (Vietcombank, MB, Techcombank, MoMo...)",
+            f"1. Mở ứng dụng ngân hàng bất kỳ (Vietcombank, MB, Techcombank...)",
             f"2. Quét mã VietQR trên màn hình",
             f"3. Giữ nguyên số tiền {amount:,}đ và nội dung chuyển khoản là '{transfer_content}'",
-            f"4. Bấm 'Tôi đã thanh toán' hoặc đợi hệ thống tự động cộng credit vào tài khoản"
+            f"4. Bấm 'Tôi đã quét mã & chuyển khoản' để gửi yêu cầu cho Admin duyệt."
         ]
     }
 
 
-@router.post("/confirm-order")
-async def confirm_order(
-    payload: ConfirmOrderRequest,
+@router.get("/orders/{order_code}")
+async def get_order_status(
+    order_code: str,
+    auth_ctx: dict = Depends(get_current_auth)
+):
+    """Kiểm tra trạng thái của một đơn nạp cụ thể."""
+    user_id = auth_ctx.get("user_id")
+    code = clean_order_code(order_code)
+    supabase = get_supabase_admin()
+
+    try:
+        res = supabase.table("payment_orders").select("*").eq("order_code", code).limit(1).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn nạp.")
+        order = res.data[0]
+        return {
+            "order_code": order["order_code"],
+            "status": order["status"],
+            "amount_vnd": order["amount_vnd"],
+            "credits_granted": order["credits_granted"],
+            "target_tier": order["target_tier"],
+            "completed_at": order.get("completed_at")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notify-transfer")
+async def notify_transfer(
+    payload: NotifyTransferRequest,
     auth_ctx: dict = Depends(get_current_auth)
 ):
     """
-    Xác nhận nạp tiền: Kích hoạt cộng credit và nâng cấp gói cước cho người dùng.
+    Người dùng thông báo đã chuyển khoản -> Chuyển đơn sang trạng thái WAITING_APPROVAL.
+    (Người dùng KHÔNG được tự ý duyệt đơn).
     """
-    user_id = auth_ctx.get("user_id")
-    order_code = payload.order_code.strip().upper()
-
+    code = clean_order_code(payload.order_code)
     supabase = get_supabase_admin()
+
     try:
-        # Gọi Stored Function complete_payment_order nếu có
+        res = supabase.table("payment_orders").select("*").eq("order_code", code).limit(1).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn nạp.")
+        order = res.data[0]
+        if order["status"] == "COMPLETED":
+            return {"success": True, "status": "COMPLETED", "message": "Đơn nạp đã được Admin duyệt thành công!"}
+
+        supabase.table("payment_orders").update({
+            "status": "WAITING_APPROVAL"
+        }).eq("id", order["id"]).execute()
+
+        return {
+            "success": True,
+            "status": "WAITING_APPROVAL",
+            "message": "Đã gửi thông báo chuyển khoản thành công. Admin sẽ kiểm tra và duyệt credit trong ít phút."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ====================================================================
+# ADMIN ENDPOINTS (CHỈ DÀNH CHO admin@gmail.com)
+# ====================================================================
+
+def verify_admin(auth_ctx: dict):
+    user_email = auth_ctx.get("email") or ""
+    if user_email.lower() != ADMIN_EMAIL.lower():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Truy cập bị từ chối. Chỉ tài khoản quản trị admin@gmail.com mới có quyền duyệt nạp."
+        )
+
+
+@router.get("/admin/orders")
+async def admin_get_orders(
+    status_filter: Optional[str] = None,
+    auth_ctx: dict = Depends(get_current_auth)
+):
+    """Admin lấy danh sách tất cả các đơn nạp tiền."""
+    verify_admin(auth_ctx)
+    supabase = get_supabase_admin()
+
+    try:
+        query = supabase.table("payment_orders").select("*").order("created_at", desc=True)
+        if status_filter:
+            query = query.eq("status", status_filter.upper())
+        res = query.limit(50).execute()
+        return {"orders": res.data or []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/approve-order")
+async def admin_approve_order(
+    payload: AdminApproveRequest,
+    auth_ctx: dict = Depends(get_current_auth)
+):
+    """
+    Admin duyệt nạp thành công bằng mã đơn hoặc mã 6 chữ số:
+    Cộng credit + Nâng hạng tài khoản người dùng ngay lập tức.
+    """
+    verify_admin(auth_ctx)
+    order_code = clean_order_code(payload.order_code)
+    supabase = get_supabase_admin()
+
+    try:
+        # 1. Gọi stored function complete_payment_order nếu có
         res = supabase.rpc("complete_payment_order", {"p_order_code": order_code}).execute()
         if res.data and res.data.get("success"):
             return res.data
     except Exception as rpc_err:
-        logger.warning(f"RPC complete_payment_order thất bại: {rpc_err}. Thực hiện xử lý thủ công qua Python.")
+        logger.warning(f"RPC complete_payment_order lỗi: {rpc_err}, xử lý thủ công qua admin client.")
 
-    # Fallback xử lý thủ công qua Python
     try:
         order_res = supabase.table("payment_orders").select("*").eq("order_code", order_code).limit(1).execute()
         if not order_res.data:
-            raise HTTPException(status_code=404, detail="Không tìm thấy đơn nạp này.")
+            raise HTTPException(status_code=404, detail=f"Không tìm thấy đơn nạp với mã {order_code}.")
 
         order = order_res.data[0]
         if order.get("status") == "COMPLETED":
-            return {"success": True, "message": "Đơn nạp đã được xử lý thành công trước đó."}
+            return {"success": True, "message": "Đơn này đã được duyệt thành công trước đó."}
 
-        # Cập nhật trạng thái đơn
+        # Cập nhật status
         supabase.table("payment_orders").update({
             "status": "COMPLETED",
             "completed_at": datetime.utcnow().isoformat() + "Z"
         }).eq("id", order["id"]).execute()
 
-        # Cập nhật số dư credit
+        # Cập nhật ví credit
         credit_res = supabase.table("user_credits").select("*").eq("user_id", order["user_id"]).limit(1).execute()
         current_balance = 0
         current_tier = "normal"
@@ -298,7 +402,7 @@ async def confirm_order(
         new_balance = current_balance + order["credits_granted"]
         target_tier = order["target_tier"]
 
-        # Cập nhật tier
+        # Cập nhật tier người dùng
         supabase.table("user_credits").upsert({
             "user_id": order["user_id"],
             "credit_balance": new_balance,
@@ -306,14 +410,14 @@ async def confirm_order(
             "updated_at": datetime.utcnow().isoformat() + "Z"
         }).execute()
 
-        # Ghi log credit transaction
+        # Ghi log lịch sử biến động
         supabase.table("credit_transactions").insert({
             "user_id": order["user_id"],
             "amount": order["credits_granted"],
             "balance_after": new_balance,
             "type": "TOPUP",
             "order_id": order["id"],
-            "description": f"Nạp thành công đơn {order_code} ({order['credits_granted']:,} Credit)"
+            "description": f"Admin duyệt nạp thành công đơn {order_code} (+{order['credits_granted']:,} Credit)"
         }).execute()
 
         return {
@@ -321,18 +425,37 @@ async def confirm_order(
             "order_code": order_code,
             "credits_added": order["credits_granted"],
             "new_balance": new_balance,
-            "tier": target_tier
+            "tier": target_tier,
+            "user_id": order["user_id"]
         }
     except Exception as e:
-        logger.error(f"Lỗi khi xác nhận đơn nạp {order_code}: {e}")
-        raise HTTPException(status_code=500, detail=f"Không thể xử lý đơn nạp: {str(e)}")
+        logger.error(f"Lỗi khi admin duyệt đơn {order_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Không thể duyệt đơn: {str(e)}")
+
+
+@router.post("/admin/reject-order")
+async def admin_reject_order(
+    payload: AdminRejectRequest,
+    auth_ctx: dict = Depends(get_current_auth)
+):
+    """Admin từ chối đơn nạp."""
+    verify_admin(auth_ctx)
+    order_code = clean_order_code(payload.order_code)
+    supabase = get_supabase_admin()
+
+    try:
+        supabase.table("payment_orders").update({
+            "status": "CANCELLED"
+        }).eq("order_code", order_code).execute()
+
+        return {"success": True, "order_code": order_code, "status": "CANCELLED"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/history")
 async def get_history(auth_ctx: dict = Depends(get_current_auth)):
-    """
-    Lấy danh sách đơn nạp và lịch sử biến động credit của người dùng.
-    """
+    """Lấy danh sách đơn nạp và lịch sử biến động credit của người dùng."""
     user_id = auth_ctx.get("user_id")
     supabase = get_supabase_admin()
 

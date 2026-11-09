@@ -114,6 +114,7 @@ export interface PaymentOrder {
   id: string;
   order_code: string;
   user_id: string;
+  user_email?: string;
   package_id: string;
   amount_vnd: number;
   credits_granted: number;
@@ -123,7 +124,7 @@ export interface PaymentOrder {
   bank_account: string;
   transfer_content: string;
   qr_data_url?: string;
-  status: 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
+  status: 'PENDING' | 'WAITING_APPROVAL' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
   created_at: string;
   completed_at?: string;
 }

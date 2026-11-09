@@ -8,6 +8,7 @@ import { Studio } from './pages/Studio';
 import { History } from './pages/History';
 import { Dashboard } from './pages/Dashboard';
 import { Pricing } from './pages/Pricing';
+import { AdminTopup } from './pages/AdminTopup';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -70,6 +71,7 @@ export const App: React.FC = () => {
             >
               <Route index element={<Studio />} />
               <Route path="pricing" element={<Pricing />} />
+              <Route path="admin/topup" element={<AdminTopup />} />
               <Route path="history" element={<History />} />
               <Route path="dashboard" element={<Dashboard />} />
             </Route>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Mic, History, Key, LogOut, Radio, Cpu, Menu, X, CreditCard, Plus, Sparkles, Coins } from 'lucide-react';
+import { Mic, History, Key, LogOut, Radio, Cpu, Menu, X, CreditCard, Plus, Sparkles, Coins, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCredit } from '../../contexts/CreditContext';
 import { api } from '../../lib/api';
@@ -35,9 +35,12 @@ export const AppLayout: React.FC = () => {
     navigate('/login');
   };
 
+  const isAdmin = user?.email?.toLowerCase() === 'admin@gmail.com';
+
   const navItems = [
     { name: 'Studio TTS', path: '/', icon: Mic },
     { name: 'Gói cước & Nạp Credit', path: '/pricing', icon: CreditCard },
+    ...(isAdmin ? [{ name: 'Duyệt nạp Credit (Admin)', path: '/admin/topup', icon: ShieldCheck }] : []),
     { name: 'Lịch sử phát âm', path: '/history', icon: History },
     { name: 'Developer & Keys', path: '/dashboard', icon: Key },
   ];

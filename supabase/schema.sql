@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS public.payment_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_code VARCHAR(32) NOT NULL UNIQUE, -- Nội dung chuyển khoản duy nhất (VD: TTS849201)
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_email VARCHAR(255),
     package_id VARCHAR(20) NOT NULL REFERENCES public.credit_packages(id),
     amount_vnd INT NOT NULL,
     credits_granted BIGINT NOT NULL,
@@ -110,7 +111,7 @@ CREATE TABLE IF NOT EXISTS public.payment_orders (
     bank_account VARCHAR(50) NOT NULL DEFAULT '1071895625',
     transfer_content VARCHAR(50) NOT NULL, -- Nội dung giao dịch để sinh QR (trùng với order_code)
     qr_data_url TEXT,
-    status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'COMPLETED', 'CANCELLED', 'EXPIRED'
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED', 'EXPIRED'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
     completed_at TIMESTAMP WITH TIME ZONE
 );

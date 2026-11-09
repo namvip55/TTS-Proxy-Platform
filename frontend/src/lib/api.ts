@@ -95,22 +95,57 @@ export const api = {
     return response.data;
   },
 
-  async createOrder(packageId: string): Promise<CreateOrderResponse> {
+  async createOrder(packageId: string, preferredCode?: string): Promise<CreateOrderResponse> {
     const response = await apiClient.post<CreateOrderResponse>('/v1/billing/create-order', {
       package_id: packageId,
+      preferred_code: preferredCode,
     });
     return response.data;
   },
 
-  async confirmOrder(orderCode: string): Promise<{
+  async getOrderStatus(orderCode: string): Promise<{
+    order_code: string;
+    status: string;
+    amount_vnd: number;
+    credits_granted: number;
+    target_tier: string;
+  }> {
+    const response = await apiClient.get(`/v1/billing/orders/${orderCode}`);
+    return response.data;
+  },
+
+  async notifyTransfer(orderCode: string): Promise<{ success: boolean; status: string; message: string }> {
+    const response = await apiClient.post('/v1/billing/notify-transfer', {
+      order_code: orderCode,
+    });
+    return response.data;
+  },
+
+  // Admin APIs (Chỉ dành cho admin@gmail.com)
+  async adminGetOrders(statusFilter?: string): Promise<{ orders: PaymentOrder[] }> {
+    const response = await apiClient.get<{ orders: PaymentOrder[] }>('/v1/billing/admin/orders', {
+      params: statusFilter ? { status_filter: statusFilter } : {},
+    });
+    return response.data;
+  },
+
+  async adminApproveOrder(orderCode: string): Promise<{
     success: boolean;
     order_code: string;
     credits_added: number;
     new_balance: number;
     tier: string;
   }> {
-    const response = await apiClient.post('/v1/billing/confirm-order', {
+    const response = await apiClient.post('/v1/billing/admin/approve-order', {
       order_code: orderCode,
+    });
+    return response.data;
+  },
+
+  async adminRejectOrder(orderCode: string, reason?: string): Promise<{ success: boolean; order_code: string }> {
+    const response = await apiClient.post('/v1/billing/admin/reject-order', {
+      order_code: orderCode,
+      reason,
     });
     return response.data;
   },
