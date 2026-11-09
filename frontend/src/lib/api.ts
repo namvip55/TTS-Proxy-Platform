@@ -6,7 +6,12 @@ import {
   Voice,
   ApiKeyItem,
   HistoryItem,
-  WorkerStatusInfo
+  WorkerStatusInfo,
+  UserCreditInfo,
+  CreditPackage,
+  CreateOrderResponse,
+  PaymentOrder,
+  CreditTransaction
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
@@ -74,6 +79,47 @@ export const api = {
   // Trạng thái GPU Worker
   async getWorkerStatus(): Promise<{ status: string; gpu_worker: WorkerStatusInfo }> {
     const response = await apiClient.get('/v1/status');
+    return response.data;
+  },
+
+  // ==========================================
+  // BILLING & CREDITS API
+  // ==========================================
+  async getBillingBalance(): Promise<UserCreditInfo> {
+    const response = await apiClient.get<UserCreditInfo>('/v1/billing/balance');
+    return response.data;
+  },
+
+  async getPackages(): Promise<{ packages: CreditPackage[] }> {
+    const response = await apiClient.get<{ packages: CreditPackage[] }>('/v1/billing/packages');
+    return response.data;
+  },
+
+  async createOrder(packageId: string): Promise<CreateOrderResponse> {
+    const response = await apiClient.post<CreateOrderResponse>('/v1/billing/create-order', {
+      package_id: packageId,
+    });
+    return response.data;
+  },
+
+  async confirmOrder(orderCode: string): Promise<{
+    success: boolean;
+    order_code: string;
+    credits_added: number;
+    new_balance: number;
+    tier: string;
+  }> {
+    const response = await apiClient.post('/v1/billing/confirm-order', {
+      order_code: orderCode,
+    });
+    return response.data;
+  },
+
+  async getBillingHistory(): Promise<{
+    orders: PaymentOrder[];
+    transactions: CreditTransaction[];
+  }> {
+    const response = await apiClient.get('/v1/billing/history');
     return response.data;
   }
 };

@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Mic, History, Key, LogOut, Radio, Cpu, Menu, X } from 'lucide-react';
+import { Mic, History, Key, LogOut, Radio, Cpu, Menu, X, CreditCard, Plus, Sparkles, Coins } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCredit } from '../../contexts/CreditContext';
 import { api } from '../../lib/api';
 import { Badge } from '../ui/Badge';
+import { PaymentModal } from '../PaymentModal';
 
 export const AppLayout: React.FC = () => {
   const { user, signOut } = useAuth();
+  const { creditInfo, isTopupModalOpen, selectedPackageId, openTopupModal, closeTopupModal } = useCredit();
   const navigate = useNavigate();
   const [gpuOnline, setGpuOnline] = useState<boolean>(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
@@ -34,9 +37,23 @@ export const AppLayout: React.FC = () => {
 
   const navItems = [
     { name: 'Studio TTS', path: '/', icon: Mic },
+    { name: 'Gói cước & Nạp Credit', path: '/pricing', icon: CreditCard },
     { name: 'Lịch sử phát âm', path: '/history', icon: History },
     { name: 'Developer & Keys', path: '/dashboard', icon: Key },
   ];
+
+  const getTierBadgeStyle = (tier?: string) => {
+    switch (tier) {
+      case 'ultra':
+        return 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-extrabold';
+      case 'pro':
+        return 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold';
+      case 'plus':
+        return 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold';
+      default:
+        return 'bg-slate-800 text-slate-300 font-medium';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col md:flex-row text-slate-100">
@@ -50,12 +67,25 @@ export const AppLayout: React.FC = () => {
             VieNeu-TTS
           </span>
         </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 text-slate-400 hover:text-white"
-        >
-          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+
+        <div className="flex items-center gap-2">
+          {creditInfo && (
+            <button
+              onClick={() => openTopupModal()}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold"
+            >
+              <Coins className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{creditInfo.credit_balance.toLocaleString()} Cr</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 text-slate-400 hover:text-white"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </header>
 
       {/* Sidebar Navigation */}
@@ -78,7 +108,7 @@ export const AppLayout: React.FC = () => {
             </div>
 
             {/* GPU Worker Status Indicator */}
-            <div className="mt-5 p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between">
+            <div className="mt-4 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-slate-400" />
                 <span className="text-xs font-medium text-slate-300">Colab T4 GPU:</span>
@@ -86,6 +116,38 @@ export const AppLayout: React.FC = () => {
               <Badge variant={gpuOnline ? 'green' : 'red'} size="sm" pulse={gpuOnline}>
                 {gpuOnline ? 'ONLINE' : 'OFFLINE'}
               </Badge>
+            </div>
+
+            {/* User Credit Balance Widget */}
+            <div className="mt-3 p-3 rounded-xl bg-gradient-to-b from-indigo-950/30 to-slate-950/80 border border-indigo-500/30">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <Coins className="w-3.5 h-3.5 text-indigo-400" /> Số dư Credit:
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${getTierBadgeStyle(creditInfo?.tier)}`}>
+                  {creditInfo?.tier || 'normal'}
+                </span>
+              </div>
+
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <span className="text-lg font-extrabold text-white font-mono">
+                    {creditInfo ? creditInfo.credit_balance.toLocaleString() : '---'}
+                  </span>
+                  <span className="text-xs text-slate-400 ml-1">Cr</span>
+                </div>
+                <button
+                  onClick={() => openTopupModal()}
+                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1 shadow transition"
+                  title="Nạp thêm credit"
+                >
+                  <Plus className="w-3 h-3" /> Nạp
+                </button>
+              </div>
+
+              <p className="text-[10px] text-slate-400 mt-1">
+                Tương đương: <strong className="text-slate-300">~{((creditInfo?.credit_balance || 0) * 5).toLocaleString()}</strong> chữ
+              </p>
             </div>
           </div>
 
@@ -121,7 +183,7 @@ export const AppLayout: React.FC = () => {
             <div className="truncate pr-2">
               <p className="text-xs font-semibold text-slate-200 truncate">{user?.email || 'Người dùng'}</p>
               <p className="text-[10px] text-emerald-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Whitelisted
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Đã kích hoạt
               </p>
             </div>
             <button
@@ -139,6 +201,13 @@ export const AppLayout: React.FC = () => {
       <main className="flex-1 min-h-screen overflow-y-auto p-4 md:p-8">
         <Outlet />
       </main>
+
+      {/* Global Payment QR Modal */}
+      <PaymentModal
+        isOpen={isTopupModalOpen}
+        onClose={closeTopupModal}
+        initialPackageId={selectedPackageId}
+      />
     </div>
   );
 };

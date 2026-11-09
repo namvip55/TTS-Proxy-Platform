@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Sliders, AlertTriangle, FileAudio, Clock, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Sparkles, Sliders, AlertTriangle, FileAudio, Clock, CheckCircle2, Coins, Plus, AlertCircle } from 'lucide-react';
 import { api } from '../lib/api';
 import { Voice, TTSResponsePayload } from '../types';
+import { useCredit } from '../contexts/CreditContext';
 import { VoiceSelector } from '../components/VoiceSelector';
 import { AudioPlayer } from '../components/AudioPlayer';
 import { Button } from '../components/ui/Button';
@@ -9,6 +10,7 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 
 export const Studio: React.FC = () => {
+  const { creditInfo, refreshCredits, openTopupModal } = useCredit();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('vi-VN-Northern-Male-1');
   const [inputText, setInputText] = useState<string>(
@@ -21,6 +23,14 @@ export const Studio: React.FC = () => {
   const [result, setResult] = useState<TTSResponsePayload | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [gpuConnected, setGpuConnected] = useState<boolean>(true);
+
+  // Tính số từ và lượng credit tiêu hao (1 credit = 5 chữ)
+  const trimmedText = inputText.trim();
+  const wordsCount = trimmedText ? trimmedText.split(/\s+/).length : 0;
+  const charactersCount = inputText.length;
+  const requiredCredits = wordsCount > 0 ? Math.max(1, Math.ceil(wordsCount / 5)) : 0;
+  const currentBalance = creditInfo?.credit_balance ?? 0;
+  const hasEnoughCredits = currentBalance >= requiredCredits;
 
   // Tải danh sách giọng đọc từ Gateway
   useEffect(() => {
@@ -50,8 +60,16 @@ export const Studio: React.FC = () => {
   }, []);
 
   const handleGenerate = async () => {
-    if (!inputText.trim()) {
+    if (!trimmedText) {
       setErrorMessage('Vui lòng nhập văn bản cần đọc.');
+      return;
+    }
+
+    if (!hasEnoughCredits) {
+      setErrorMessage(
+        `Số dư không đủ! Đoạn văn cần ${requiredCredits} credit (${wordsCount} từ), bạn hiện có ${currentBalance} credit. Vui lòng nạp thêm để tiếp tục.`
+      );
+      openTopupModal();
       return;
     }
 
@@ -61,16 +79,23 @@ export const Studio: React.FC = () => {
     try {
       const response = await api.generateSpeech({
         model: 'vieneu-v3-turbo',
-        input: inputText.trim(),
+        input: trimmedText,
         voice: selectedVoiceId,
         speed: speed,
         response_format: format,
       });
 
       setResult(response);
+      // Cập nhật lại số dư credit sau khi đã trừ thành công
+      await refreshCredits();
     } catch (err: any) {
       console.error('TTS Error:', err);
-      if (err.response?.status === 503 || err.response?.data?.error?.code === 'GPU_WORKER_OFFLINE') {
+      if (err.response?.status === 402) {
+        setErrorMessage(
+          err.response?.data?.error?.message || 'Tài khoản không đủ credit. Vui lòng nạp thêm gói cước.'
+        );
+        openTopupModal();
+      } else if (err.response?.status === 503 || err.response?.data?.error?.code === 'GPU_WORKER_OFFLINE') {
         setGpuConnected(false);
         setErrorMessage('Colab GPU Worker hiện đang Offline! Vui lòng khởi chạy script worker trên Google Colab để xử lý.');
       } else {
@@ -131,9 +156,13 @@ export const Studio: React.FC = () => {
               <label className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
                 Văn bản Tiếng Việt
               </label>
-              <span className={`text-xs font-mono ${inputText.length > 4500 ? 'text-amber-400' : 'text-slate-400'}`}>
-                {inputText.length} / 5,000 ký tự
-              </span>
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <span className="text-slate-400">{wordsCount} từ</span>
+                <span className="text-slate-600">|</span>
+                <span className={`${charactersCount > 4500 ? 'text-amber-400' : 'text-slate-400'}`}>
+                  {charactersCount} / 5,000 ký tự
+                </span>
+              </div>
             </div>
 
             <textarea
@@ -145,8 +174,39 @@ export const Studio: React.FC = () => {
               className="w-full bg-slate-950/70 border border-slate-800 rounded-xl p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition leading-relaxed font-sans"
             />
 
+            {/* Credit Cost Indicator Bar */}
+            <div className="mt-3.5 p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+                  <Coins className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-slate-400">Ước tính tiêu thụ: </span>
+                  <span className="font-bold text-white font-mono">{requiredCredits} Credit</span>
+                  <span className="text-[11px] text-slate-500 ml-1.5">(1 Credit = 5 chữ)</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <div className="text-right">
+                  <span className="text-slate-400">Số dư: </span>
+                  <span className={`font-bold font-mono ${hasEnoughCredits ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {currentBalance.toLocaleString()} Cr
+                  </span>
+                </div>
+                {!hasEnoughCredits && (
+                  <button
+                    onClick={() => openTopupModal()}
+                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold flex items-center gap-1 transition text-xs shadow-md shadow-rose-600/30"
+                  >
+                    <Plus className="w-3 h-3" /> Nạp thêm
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Quick Samples */}
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <div className="mt-4 flex items-center gap-2 flex-wrap">
               <span className="text-xs text-slate-500">Mẫu thử nhanh:</span>
               {sampleTexts.map((sample, idx) => (
                 <button
@@ -169,7 +229,12 @@ export const Studio: React.FC = () => {
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="text-xs text-slate-400">
+              Gói tài khoản:{' '}
+              <span className="font-bold uppercase text-indigo-400">{creditInfo?.tier || 'normal'}</span>
+            </div>
+
             <Button
               onClick={handleGenerate}
               isLoading={isLoading}
@@ -177,7 +242,7 @@ export const Studio: React.FC = () => {
               className="w-full sm:w-auto px-8 py-3 text-base shadow-xl"
               icon={<Sparkles className="w-5 h-5 text-amber-300" />}
             >
-              {isLoading ? 'Đang nạp GPU & Tạo âm thanh...' : 'Tạo âm thanh ngay'}
+              {isLoading ? 'Đang nạp GPU & Tạo âm thanh...' : `Tạo âm thanh (${requiredCredits} Cr)`}
             </Button>
           </div>
         </div>

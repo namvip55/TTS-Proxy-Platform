@@ -43,6 +43,22 @@ def test_websocket_manager_state():
     assert not ws_manager.is_connected, "Worker ban dau phai la Offline (False)"
     print("         - is_connected = False (Dung thiet ke)")
 
+def test_billing_packages_and_qr():
+    from app.routers.billing import PACKAGES_DATA, generate_vietqr_url, BANK_BIN, BANK_ACCOUNT
+    print("[TEST 4] Kiem tra cau hinh Billing, Credit va VietQR:")
+    assert "normal" in PACKAGES_DATA and PACKAGES_DATA["normal"]["credits"] == 1000
+    assert "plus" in PACKAGES_DATA and PACKAGES_DATA["plus"]["credits"] == 20000 and PACKAGES_DATA["plus"]["price_vnd"] == 20000
+    assert "pro" in PACKAGES_DATA and PACKAGES_DATA["pro"]["credits"] == 100000 and PACKAGES_DATA["pro"]["price_vnd"] == 80000
+    assert "ultra" in PACKAGES_DATA and PACKAGES_DATA["ultra"]["credits"] == 300000 and PACKAGES_DATA["ultra"]["price_vnd"] == 150000
+    print("         - 4 goi (Normal, Plus, Pro, Ultra) dung thong so credit & gia")
+
+    qr_url = generate_vietqr_url(BANK_BIN, BANK_ACCOUNT, 20000, "TTS849201")
+    assert "img.vietqr.io" in qr_url
+    assert "970436" in qr_url
+    assert "1071895625" in qr_url
+    assert "20000" in qr_url
+    print(f"         - URL VietQR sinh chinh xac: {qr_url}")
+
 if __name__ == "__main__":
     print("==================================================")
     print(" BAT DAU KIEM THU SMOKE TEST TTS PROXY PLATFORM   ")
@@ -50,6 +66,7 @@ if __name__ == "__main__":
     test_routes_import()
     test_security_helpers()
     test_websocket_manager_state()
+    test_billing_packages_and_qr()
     print("==================================================")
     print(" TAT CA CAC BAI TEST DON VI DA VUOT QUA 100%!     ")
     print("==================================================")

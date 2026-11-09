@@ -52,6 +52,8 @@ export interface HistoryItem {
   status: string;
   audio_url: string;
   execution_time_ms?: number;
+  word_count?: number;
+  credit_cost?: number;
   created_at: string;
 }
 
@@ -59,4 +61,81 @@ export interface WorkerStatusInfo {
   connected: boolean;
   last_seen?: string | null;
   active_jobs: number;
+}
+
+// =======================================================
+// BILLING & CREDIT TYPES
+// =======================================================
+export type CreditTier = 'normal' | 'plus' | 'pro' | 'ultra';
+
+export interface UserCreditInfo {
+  user_id: string;
+  tier: CreditTier;
+  credit_balance: number;
+  words_remaining: number;
+  total_used_credits: number;
+  rate_words_per_credit: number;
+}
+
+export interface CreditPackage {
+  id: CreditTier;
+  name: string;
+  credits: number;
+  price_vnd: number;
+  words_equivalent: number;
+  badge?: string;
+  description?: string;
+  is_popular?: boolean;
+  features?: string[];
+}
+
+export interface BankInfo {
+  bin: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  transfer_content: string;
+  amount: number;
+}
+
+export interface CreateOrderResponse {
+  success: boolean;
+  order_code: string;
+  package: CreditPackage;
+  amount_vnd: number;
+  credits_granted: number;
+  bank_info: BankInfo;
+  qr_code_url: string;
+  status: string;
+  instructions: string[];
+}
+
+export interface PaymentOrder {
+  id: string;
+  order_code: string;
+  user_id: string;
+  package_id: string;
+  amount_vnd: number;
+  credits_granted: number;
+  target_tier: CreditTier;
+  bank_bin: string;
+  bank_name: string;
+  bank_account: string;
+  transfer_content: string;
+  qr_data_url?: string;
+  status: 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
+  created_at: string;
+  completed_at?: string;
+}
+
+export interface CreditTransaction {
+  id: string;
+  user_id: string;
+  amount: number;
+  balance_after: number;
+  type: 'INITIAL_FREE' | 'TOPUP' | 'USAGE_TTS' | 'REFUND';
+  order_id?: string;
+  job_id?: string;
+  description?: string;
+  created_at: string;
 }

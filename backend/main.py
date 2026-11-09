@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.services.websocket_manager import ws_manager
 from app.services.job_queue import job_queue
-from app.routers import speech, keys, history, voices
+from app.routers import speech, keys, history, voices, billing
 
 # Cấu hình logging
 logging.basicConfig(
@@ -47,6 +47,7 @@ app.include_router(speech.router)
 app.include_router(voices.router)
 app.include_router(keys.router)
 app.include_router(history.router)
+app.include_router(billing.router)
 
 
 @app.get("/", tags=["Health"])
