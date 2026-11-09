@@ -99,16 +99,41 @@ export const api = {
   async getVoices(): Promise<{ total: number; voices: Voice[] }> {
     try {
       const response = await apiClient.get<{ total: number; voices: Voice[] }>('/v1/voices');
-      return response.data;
+      if (response.data?.voices && response.data.voices.length > 0) {
+        return response.data;
+      }
+      throw new Error('Dữ liệu rỗng');
     } catch {
-      // Fallback danh sách 28 giọng đọc chuẩn
+      // Fallback đầy đủ 28 giọng đọc chuẩn VieNeu-TTS v3 Turbo 3 miền
       const defaultVoices: Voice[] = [
-        { id: 'vi-VN-Northern-Male-1', name: 'Nam Miền Bắc (Chuẩn)', region: 'Bắc', gender: 'Nam' },
-        { id: 'vi-VN-Northern-Female-1', name: 'Nữ Miền Bắc (Truyền Cảm)', region: 'Bắc', gender: 'Nữ' },
-        { id: 'vi-VN-Southern-Male-1', name: 'Nam Miền Nam (Tự Nhiên)', region: 'Nam', gender: 'Nam' },
-        { id: 'vi-VN-Southern-Female-1', name: 'Nữ Miền Nam (Ngọt Ngào)', region: 'Nam', gender: 'Nữ' },
-        { id: 'vi-VN-Central-Male-1', name: 'Nam Miền Trung (Ấm Áp)', region: 'Trung', gender: 'Nam' },
-        { id: 'vi-VN-Central-Female-1', name: 'Nữ Miền Trung (Dịu Dàng)', region: 'Trung', gender: 'Nữ' },
+        { id: "vi-VN-Northern-Male-1", name: "Quang Minh (Bắc)", region: "Bắc", gender: "Nam", description: "Giọng đọc nam Hà Nội chuẩn, phong thái đĩnh đạc, phù hợp tin tức, phóng sự và tài liệu." },
+        { id: "vi-VN-Northern-Male-2", name: "Tuấn Kiệt (Bắc)", region: "Bắc", gender: "Nam", description: "Giọng nam trầm ấm, truyền cảm, thích hợp đọc sách nói, tản văn và podcast." },
+        { id: "vi-VN-Northern-Male-3", name: "Đức Duy (Bắc)", region: "Bắc", gender: "Nam", description: "Giọng nam trẻ trung, năng động, phong cách review công nghệ và video ngắn TikTok/YouTube." },
+        { id: "vi-VN-Northern-Male-4", name: "Việt Hùng (Bắc)", region: "Bắc", gender: "Nam", description: "Giọng nam trung niên đằm thắm, uy nghiêm, dành cho phim tài liệu lịch sử." },
+        { id: "vi-VN-Northern-Male-5", name: "Hải Đăng (Bắc)", region: "Bắc", gender: "Nam", description: "Giọng nam tươi vui, tự nhiên, thích hợp sách thiếu nhi và hoạt hình." },
+        { id: "vi-VN-Northern-Female-1", name: "Mai Chi (Bắc)", region: "Bắc", gender: "Nữ", description: "Giọng nữ phát thanh viên chuẩn đài quốc gia, trong trẻo, lưu loát." },
+        { id: "vi-VN-Northern-Female-2", name: "Ngọc Lan (Bắc)", region: "Bắc", gender: "Nữ", description: "Giọng nữ dịu dàng, êm ái, lý tưởng cho sách nói ngôn tình và thiền định." },
+        { id: "vi-VN-Northern-Female-3", name: "Hà My (Bắc)", region: "Bắc", gender: "Nữ", description: "Giọng nữ MC trẻ, hiện đại, thuyết minh bài giảng và e-learning." },
+        { id: "vi-VN-Northern-Female-4", name: "Thục Quyên (Bắc)", region: "Bắc", gender: "Nữ", description: "Giọng nữ Hà Nội thanh lịch, biểu cảm phong phú dành cho kịch truyền thanh." },
+        { id: "vi-VN-Northern-Female-5", name: "Bảo Trâm (Bắc)", region: "Bắc", gender: "Nữ", description: "Giọng nữ chuyên nghiệp, tự tin, thích hợp quảng cáo TVC và giới thiệu sản phẩm." },
+        { id: "vi-VN-Central-Male-1", name: "Bảo An (Huế)", region: "Trung", gender: "Nam", description: "Giọng nam Huế nhẹ nhàng, văn vẻ, sâu lắng, đậm chất thơ." },
+        { id: "vi-VN-Central-Male-2", name: "Trung Nghĩa (Đà Nẵng)", region: "Trung", gender: "Nam", description: "Giọng nam Đà Nẵng rõ ràng, truyền cảm, phong cách du lịch và ẩm thực." },
+        { id: "vi-VN-Central-Male-3", name: "Văn Hiệp (Quảng Nam)", region: "Trung", gender: "Nam", description: "Giọng nam Quảng Nam mộc mạc, gần gũi, dành cho truyện dân gian." },
+        { id: "vi-VN-Central-Male-4", name: "Thành Vinh (Nghệ An)", region: "Trung", gender: "Nam", description: "Giọng nam xứ Nghệ khỏe khoắn, chân tình, thích hợp bình luận thể thao và văn hóa." },
+        { id: "vi-VN-Central-Female-1", name: "Như Quỳnh (Huế)", region: "Trung", gender: "Nữ", description: "Giọng nữ Huế ngọt ngào, đằm thắm, mang âm hưởng cố đô cổ kính." },
+        { id: "vi-VN-Central-Female-2", name: "Diệu Thảo (Huế)", region: "Trung", gender: "Nữ", description: "Giọng nữ Huế trong trẻo, du dương, lý tưởng cho đọc thơ và truyện tình ca." },
+        { id: "vi-VN-Central-Female-3", name: "Thu Trang (Đà Nẵng)", region: "Trung", gender: "Nữ", description: "Giọng nữ Đà Nẵng ấm áp, dễ nghe, phù hợp tư vấn khách hàng tự động." },
+        { id: "vi-VN-Central-Female-4", name: "Cẩm Tú (Khánh Hòa)", region: "Trung", gender: "Nữ", description: "Giọng nữ Nam Trung Bộ tươi sáng, rạng rỡ, thích hợp du lịch và giới thiệu trải nghiệm." },
+        { id: "vi-VN-Southern-Male-1", name: "Hùng Dũng (Sài Gòn)", region: "Nam", gender: "Nam", description: "Giọng nam Sài Gòn sang trọng, lôi cuốn, giọng TVC quảng cáo hàng đầu." },
+        { id: "vi-VN-Southern-Male-2", name: "Minh Trí (Sài Gòn)", region: "Nam", gender: "Nam", description: "Giọng nam trẻ Sài Gòn tự nhiên, hài hước, phong cách sáng tạo nội dung vlog." },
+        { id: "vi-VN-Southern-Male-3", name: "Quốc Hưng (Miền Tây)", region: "Nam", gender: "Nam", description: "Giọng nam miền Tây chân chất, hào sảng, thích hợp truyện kể miệt vườn." },
+        { id: "vi-VN-Southern-Male-4", name: "Tấn Tài (Nam Bộ)", region: "Nam", gender: "Nam", description: "Giọng nam trung niên đĩnh đạc, phù hợp bản tin tài chính và kinh tế." },
+        { id: "vi-VN-Southern-Male-5", name: "Chí Thiện (Sài Gòn)", region: "Nam", gender: "Nam", description: "Giọng nam ấm áp, kể chuyện đêm khuya, podcast chữa lành." },
+        { id: "vi-VN-Southern-Female-1", name: "Thảo Vy (Sài Gòn)", region: "Nam", gender: "Nữ", description: "Giọng nữ Sài Gòn thời thượng, thanh thoát, chuyên nghiệp cho giới thiệu thương hiệu." },
+        { id: "vi-VN-Southern-Female-2", name: "Yến Nhi (Sài Gòn)", region: "Nam", gender: "Nữ", description: "Giọng nữ trẻ năng động, vui tươi, thích hợp video TikTok, Reels và review ẩm thực." },
+        { id: "vi-VN-Southern-Female-3", name: "Mỹ Linh (Miền Tây)", region: "Nam", gender: "Nữ", description: "Giọng nữ miền Tây sông nước ngọt lịm, ấm áp, giàu tình cảm." },
+        { id: "vi-VN-Southern-Female-4", name: "Thanh Trúc (Sài Gòn)", region: "Nam", gender: "Nữ", description: "Giọng nữ MC hội nghị truyền hình, rõ ràng, rành mạch và cuốn hút." },
+        { id: "vi-VN-Southern-Female-5", name: "Bích Vân (Sài Gòn)", region: "Nam", gender: "Nữ", description: "Giọng nữ phát thanh truyện ma, kịch bản ly kỳ hoặc tài liệu xã hội." }
       ];
       return { total: defaultVoices.length, voices: defaultVoices };
     }

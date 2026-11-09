@@ -5,6 +5,9 @@ import { CreditProvider } from './contexts/CreditContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { Login } from './pages/Login';
 import { Studio } from './pages/Studio';
+import { StoryStudio } from './pages/StoryStudio';
+import { VoiceLibrary } from './pages/VoiceLibrary';
+import { VoiceClone } from './pages/VoiceClone';
 import { History } from './pages/History';
 import { Dashboard } from './pages/Dashboard';
 import { Pricing } from './pages/Pricing';
@@ -70,6 +73,9 @@ export const App: React.FC = () => {
               }
             >
               <Route index element={<Studio />} />
+              <Route path="story" element={<StoryStudio />} />
+              <Route path="voices" element={<VoiceLibrary />} />
+              <Route path="clone" element={<VoiceClone />} />
               <Route path="pricing" element={<Pricing />} />
               <Route path="admin/topup" element={<AdminTopup />} />
               <Route path="history" element={<History />} />
