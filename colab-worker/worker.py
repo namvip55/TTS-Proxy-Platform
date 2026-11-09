@@ -48,6 +48,17 @@ async def send_heartbeat(ws):
 
             if is_alive:
                 await ws.send(json.dumps({"type": "PING"}))
+                # Đồng bộ heartbeat lên Supabase Cloud để mọi máy đều thấy Colab Online
+                if storage_client.client:
+                    try:
+                        storage_client.client.table("system_status").upsert({
+                            "id": "gpu_worker",
+                            "is_online": True,
+                            "last_seen": "now()",
+                            "updated_at": "now()"
+                        }).execute()
+                    except Exception:
+                        pass
             else:
                 break
     except asyncio.CancelledError:

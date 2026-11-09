@@ -56,7 +56,7 @@ export const AdminTopup: React.FC = () => {
       setInputCode('');
       await fetchOrders();
     } catch (err: any) {
-      const errMsg = err.response?.data?.detail || 'Không thể duyệt đơn. Vui lòng kiểm tra lại mã.';
+      const errMsg = err.message || err.response?.data?.detail || 'Không thể duyệt đơn. Vui lòng kiểm tra lại mã.';
       setMessage({ text: errMsg, type: 'error' });
     } finally {
       setActionLoading(false);

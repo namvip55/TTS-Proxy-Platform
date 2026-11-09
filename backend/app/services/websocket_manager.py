@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Optional
 from datetime import datetime
 from fastapi import WebSocket, status
+from app.core.supabase import get_supabase_admin
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -46,6 +47,15 @@ class WebSocketManager:
             self.active_worker = websocket
             self.last_seen = datetime.utcnow()
             logger.info(">>> Colab GPU Worker ĐÃ KẾT NỐI THÀNH CÔNG! <<<")
+            try:
+                get_supabase_admin().table("system_status").upsert({
+                    "id": "gpu_worker",
+                    "is_online": True,
+                    "last_seen": self.last_seen.isoformat() + "Z",
+                    "updated_at": self.last_seen.isoformat() + "Z"
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Lỗi update system_status online lên Supabase: {e}")
         return True
 
     async def disconnect_worker(self, websocket: WebSocket):
@@ -55,6 +65,13 @@ class WebSocketManager:
                 self.active_worker = None
                 self.last_seen = None
                 logger.warning(">>> Colab GPU Worker ĐÃ NGẮT KẾT NỐI! <<<")
+                try:
+                    get_supabase_admin().table("system_status").update({
+                        "is_online": False,
+                        "updated_at": datetime.utcnow().isoformat() + "Z"
+                    }).eq("id", "gpu_worker").execute()
+                except Exception as e:
+                    logger.warning(f"Lỗi update system_status offline lên Supabase: {e}")
                 
                 # Báo lỗi cho toàn bộ các job đang đợi Worker này
                 for job_id, future in list(self.pending_jobs.items()):
@@ -72,6 +89,14 @@ class WebSocketManager:
             if msg_type == "PING":
                 if self.active_worker:
                     await self.active_worker.send_text(json.dumps({"type": "PONG", "timestamp": self.last_seen.isoformat()}))
+                try:
+                    get_supabase_admin().table("system_status").update({
+                        "is_online": True,
+                        "last_seen": self.last_seen.isoformat() + "Z",
+                        "updated_at": self.last_seen.isoformat() + "Z"
+                    }).eq("id", "gpu_worker").execute()
+                except Exception:
+                    pass
                 return
 
             if msg_type == "JOB_RESULT":

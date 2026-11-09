@@ -318,7 +318,26 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ====================================================================
--- 5. ROW LEVEL SECURITY (RLS) POLICIES
+-- 5. BẢNG THEO DÕI TRẠNG THÁI HỆ THỐNG & WORKER GPU (SYSTEM STATUS)
+-- ====================================================================
+
+CREATE TABLE IF NOT EXISTS public.system_status (
+    id VARCHAR(50) PRIMARY KEY DEFAULT 'gpu_worker',
+    is_online BOOLEAN DEFAULT false,
+    last_seen TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    gateway_url TEXT DEFAULT 'http://localhost:8000',
+    details JSONB DEFAULT '{"active_jobs": 0}'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+INSERT INTO public.system_status (id, is_online, last_seen, details)
+VALUES ('gpu_worker', true, timezone('utc'::text, now()), '{"active_jobs": 0}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET
+    is_online = EXCLUDED.is_online,
+    last_seen = EXCLUDED.last_seen;
+
+-- ====================================================================
+-- 6. ROW LEVEL SECURITY (RLS) POLICIES
 -- ====================================================================
 
 ALTER TABLE public.api_keys ENABLE ROW LEVEL SECURITY;
@@ -327,43 +346,94 @@ ALTER TABLE public.credit_packages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_credits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payment_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_status ENABLE ROW LEVEL SECURITY;
 
--- Policy API Keys
+-- 6.0. System Status: Cho phép mọi máy xem trạng thái Colab GPU
+DROP POLICY IF EXISTS "Anyone can view system status" ON public.system_status;
+CREATE POLICY "Anyone can view system status"
+    ON public.system_status FOR SELECT
+    TO anon, authenticated
+    USING (true);
+
+DROP POLICY IF EXISTS "Allow update system status" ON public.system_status;
+CREATE POLICY "Allow update system status"
+    ON public.system_status FOR ALL
+    TO anon, authenticated
+    USING (true)
+    WITH CHECK (true);
+
+-- 6.1. Policy API Keys
+DROP POLICY IF EXISTS "Users can manage their own api_keys" ON public.api_keys;
 CREATE POLICY "Users can manage their own api_keys"
     ON public.api_keys FOR ALL TO authenticated
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
--- Policy TTS Jobs
+-- 6.2. Policy TTS Jobs
+DROP POLICY IF EXISTS "Users can view their own tts_jobs" ON public.tts_jobs;
 CREATE POLICY "Users can view their own tts_jobs"
     ON public.tts_jobs FOR SELECT TO authenticated
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert their own tts_jobs" ON public.tts_jobs;
+CREATE POLICY "Users can insert their own tts_jobs"
+    ON public.tts_jobs FOR INSERT TO authenticated
+    WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete their own tts_jobs" ON public.tts_jobs;
 CREATE POLICY "Users can delete their own tts_jobs"
     ON public.tts_jobs FOR DELETE TO authenticated
     USING (auth.uid() = user_id);
 
--- Policy Credit Packages (Mọi người kể cả unauthenticated đều được xem bảng giá)
+-- 6.3. Policy Credit Packages (Mọi người kể cả unauthenticated đều được xem bảng giá)
+DROP POLICY IF EXISTS "Anyone can view active credit packages" ON public.credit_packages;
 CREATE POLICY "Anyone can view active credit packages"
     ON public.credit_packages FOR SELECT
     TO anon, authenticated
     USING (true);
 
--- Policy User Credits (Người dùng chỉ xem số dư của mình)
+-- 6.4. Policy User Credits (User xem ví của mình, Admin xem và cập nhật được ví người dùng)
+DROP POLICY IF EXISTS "Users can view their own credit balance" ON public.user_credits;
 CREATE POLICY "Users can view their own credit balance"
     ON public.user_credits FOR SELECT TO authenticated
-    USING (auth.uid() = user_id);
+    USING (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
 
--- Policy Payment Orders (Người dùng chỉ xem và tạo đơn của mình)
-CREATE POLICY "Users can view their own payment orders"
+DROP POLICY IF EXISTS "Users can insert their own initial credits" ON public.user_credits;
+CREATE POLICY "Users can insert their own initial credits"
+    ON public.user_credits FOR INSERT TO authenticated
+    WITH CHECK (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
+
+DROP POLICY IF EXISTS "Admin or user can update credit balance" ON public.user_credits;
+CREATE POLICY "Admin or user can update credit balance"
+    ON public.user_credits FOR UPDATE TO authenticated
+    USING (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com')
+    WITH CHECK (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
+
+-- 6.5. Policy Payment Orders (ADMIN admin@gmail.com XEM ĐƯỢC TẤT CẢ CÁC ĐƠN ĐỂ DUYỆT)
+DROP POLICY IF EXISTS "Users can view their own payment orders" ON public.payment_orders;
+DROP POLICY IF EXISTS "Users and admin can view payment orders" ON public.payment_orders;
+CREATE POLICY "Users and admin can view payment orders"
     ON public.payment_orders FOR SELECT TO authenticated
-    USING (auth.uid() = user_id);
+    USING (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
 
+DROP POLICY IF EXISTS "Users can create their own payment orders" ON public.payment_orders;
 CREATE POLICY "Users can create their own payment orders"
     ON public.payment_orders FOR INSERT TO authenticated
-    WITH CHECK (auth.uid() = user_id);
+    WITH CHECK (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
 
--- Policy Credit Transactions (Người dùng chỉ xem lịch sử credit của mình)
+DROP POLICY IF EXISTS "Users and admin can update payment orders" ON public.payment_orders;
+CREATE POLICY "Users and admin can update payment orders"
+    ON public.payment_orders FOR UPDATE TO authenticated
+    USING (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com')
+    WITH CHECK (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
+
+-- 6.6. Policy Credit Transactions
+DROP POLICY IF EXISTS "Users can view their own credit transactions" ON public.credit_transactions;
 CREATE POLICY "Users can view their own credit transactions"
     ON public.credit_transactions FOR SELECT TO authenticated
-    USING (auth.uid() = user_id);
+    USING (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
+
+DROP POLICY IF EXISTS "Allow insert credit transactions" ON public.credit_transactions;
+CREATE POLICY "Allow insert credit transactions"
+    ON public.credit_transactions FOR INSERT TO authenticated
+    WITH CHECK (auth.uid() = user_id OR auth.jwt() ->> 'email' = 'admin@gmail.com');
